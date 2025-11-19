@@ -1,0 +1,14 @@
+{
+  "exposure": 0,
+  "time_position": "top-right",
+  "announcements": [
+    {
+      "text": "Welcome to ClassMonitor!",
+      "timestamp": "2024-01-01 09:00:00"
+    },
+    {
+      "text": "Remember to check camera settings before recording",
+      "timestamp": "2024-01-01 09:15:00"
+    }
+  ]
+}
