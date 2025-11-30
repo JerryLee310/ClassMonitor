@@ -56,9 +56,28 @@ class MonitoringApp:
         
         # Configure styles with Fluent Design colors and rounded corners
         style.configure('Fluent.TFrame', background=self.colors['background'], relief='flat')
+        try:
+            style.layout('Fluent.TFrame', style.layout('TFrame'))
+        except:
+            pass
+            
         style.configure('FluentCard.TFrame', background=self.colors['surface'], relief='flat', borderwidth=1)
+        try:
+            style.layout('FluentCard.TFrame', style.layout('TFrame'))
+        except:
+            pass
+            
         style.configure('Fluent.TLabel', background=self.colors['background'], foreground=self.colors['text_primary'], font=('Microsoft YaHei UI', 10))
+        try:
+            style.layout('Fluent.TLabel', style.layout('TLabel'))
+        except:
+            pass
+            
         style.configure('FluentTitle.TLabel', background=self.colors['background'], foreground=self.colors['text_primary'], font=('Microsoft YaHei UI', 12, 'bold'))
+        try:
+            style.layout('FluentTitle.TLabel', style.layout('TLabel'))
+        except:
+            pass
         style.configure('Fluent.TButton', 
                        background=self.colors['primary'],
                        foreground='white',
@@ -67,6 +86,11 @@ class MonitoringApp:
                        font=('Microsoft YaHei UI', 10),
                        padding=(20, 8),
                        relief='flat')
+        try:
+            style.layout('Fluent.TButton', style.layout('TButton'))
+        except:
+            pass
+            
         style.map('Fluent.TButton',
                  background=[('active', self.colors['accent']),
                            ('!disabled', self.colors['primary']),
@@ -80,6 +104,11 @@ class MonitoringApp:
                        font=('Microsoft YaHei UI', 10),
                        padding=(20, 8),
                        relief='flat')
+        try:
+            style.layout('FluentSuccess.TButton', style.layout('TButton'))
+        except:
+            pass
+            
         style.map('FluentSuccess.TButton',
                  background=[('active', '#0E6F0E'),
                            ('!disabled', self.colors['success']),
@@ -93,27 +122,44 @@ class MonitoringApp:
                        font=('Microsoft YaHei UI', 10),
                        padding=(20, 8),
                        relief='flat')
+        try:
+            style.layout('FluentDanger.TButton', style.layout('TButton'))
+        except:
+            pass
+            
         style.map('FluentDanger.TButton',
                  background=[('active', '#C02E2E'),
                            ('!disabled', self.colors['danger']),
                            ('disabled', '#CCCCCC')])
         
         style.configure('Fluent.TScale', 
-                       background=self.colors['surface'],
-                       troughcolor=self.colors['border'],
-                       borderwidth=0,
-                       lightcolor=self.colors['primary'],
-                       darkcolor=self.colors['primary'],
-                       relief='flat')
+                        background=self.colors['surface'],
+                        troughcolor=self.colors['border'],
+                        borderwidth=0,
+                        lightcolor=self.colors['primary'],
+                        darkcolor=self.colors['primary'],
+                        relief='flat')
+        
+        # Create custom layout for Scale if needed, fallback to default
+        try:
+            style.layout('Fluent.TScale', style.layout('TScale'))
+        except:
+            pass
         
         style.configure('Fluent.TCombobox',
-                       fieldbackground=self.colors['surface'],
-                       background=self.colors['surface'],
-                       borderwidth=1,
-                       relief='solid',
-                       font=('Microsoft YaHei UI', 10))
+                        fieldbackground=self.colors['surface'],
+                        background=self.colors['surface'],
+                        borderwidth=1,
+                        relief='solid',
+                        font=('Microsoft YaHei UI', 10))
         style.map('Fluent.TCombobox',
-                 focuscolor=[('focus', self.colors['primary'])])
+                  focuscolor=[('focus', self.colors['primary'])])
+        
+        # Create custom layout for Combobox if needed, fallback to default
+        try:
+            style.layout('Fluent.TCombobox', style.layout('TCombobox'))
+        except:
+            pass
         
         # Add hover effect for buttons
         self.setup_button_hover_effects()
