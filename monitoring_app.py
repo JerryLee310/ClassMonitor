@@ -133,29 +133,39 @@ class MonitoringApp:
                            ('disabled', '#CCCCCC')])
         
         style.configure('Fluent.TScale', 
-                        background=self.colors['surface'],
-                        troughcolor=self.colors['border'],
-                        borderwidth=0,
-                        lightcolor=self.colors['primary'],
-                        darkcolor=self.colors['primary'],
-                        relief='flat')
+                         background=self.colors['surface'],
+                         troughcolor=self.colors['border'],
+                         borderwidth=0,
+                         lightcolor=self.colors['primary'],
+                         darkcolor=self.colors['primary'],
+                         relief='flat')
         
-        # Create custom layout for Scale if needed, fallback to default
+        # Create custom layout for Scale and its variants, fallback to default
         try:
             style.layout('Fluent.TScale', style.layout('TScale'))
         except:
             pass
         
+        try:
+            style.layout('Horizontal.Fluent.TScale', style.layout('Horizontal.TScale'))
+        except:
+            pass
+        
+        try:
+            style.layout('Vertical.Fluent.TScale', style.layout('Vertical.TScale'))
+        except:
+            pass
+        
         style.configure('Fluent.TCombobox',
-                        fieldbackground=self.colors['surface'],
-                        background=self.colors['surface'],
-                        borderwidth=1,
-                        relief='solid',
-                        font=('Microsoft YaHei UI', 10))
+                         fieldbackground=self.colors['surface'],
+                         background=self.colors['surface'],
+                         borderwidth=1,
+                         relief='solid',
+                         font=('Microsoft YaHei UI', 10))
         style.map('Fluent.TCombobox',
                   focuscolor=[('focus', self.colors['primary'])])
         
-        # Create custom layout for Combobox if needed, fallback to default
+        # Create custom layout for Combobox and its variants, fallback to default
         try:
             style.layout('Fluent.TCombobox', style.layout('TCombobox'))
         except:
