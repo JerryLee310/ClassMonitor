@@ -16,6 +16,8 @@ from monitoring_app import MonitoringApp, VideoThread
 class TestMonitoringApp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Set virtual display for testing
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         # Create QApplication if it doesn't exist
         if not QApplication.instance():
             cls.app = QApplication(sys.argv)
@@ -39,14 +41,12 @@ class TestMonitoringApp(unittest.TestCase):
         self.assertTrue(self.app_instance.buttons_visible)
         
     def test_add_announcement(self):
-        # Mock the dialog to return a test announcement
-        with patch.object(self.app_instance, 'add_announcement') as mock_method:
-            # Simulate adding an announcement directly
-            timestamp = "2024-01-01 10:00:00"
-            self.app_instance.announcements.append({
-                'text': 'Test announcement',
-                'timestamp': timestamp
-            })
+        # Simulate adding an announcement directly
+        timestamp = "2024-01-01 10:00:00"
+        self.app_instance.announcements.append({
+            'text': 'Test announcement',
+            'timestamp': timestamp
+        })
             
         self.assertEqual(len(self.app_instance.announcements), 1)
         self.assertEqual(self.app_instance.announcements[0]['text'], 'Test announcement')
@@ -128,6 +128,8 @@ class TestMonitoringApp(unittest.TestCase):
         mock_cap = Mock()
         mock_cap.isOpened.return_value = True
         mock_cap.get.return_value = 640  # Mock frame width
+        # Mock read to return a valid frame
+        mock_cap.read.return_value = (True, None)  # frame can be None for test
         mock_cv2.return_value = mock_cap
         
         # Start camera

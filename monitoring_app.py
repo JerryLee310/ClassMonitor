@@ -37,7 +37,7 @@ class VideoThread(QThread):
         self.running = True
         while self.running and self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
-            if ret:
+            if ret and frame is not None:
                 current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -255,7 +255,7 @@ class MonitoringApp(QMainWindow):
         
         self.exposure_scale = Slider(Qt.Horizontal)
         self.exposure_scale.setRange(-10, 10)
-        self.exposure_scale.setValue(self.exposure)
+        self.exposure_scale.setValue(int(self.exposure))
         self.exposure_scale.valueChanged.connect(self.update_exposure)
         exposure_control_layout.addWidget(self.exposure_scale)
         
