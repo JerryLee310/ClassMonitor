@@ -29,6 +29,8 @@ setup(
         "opencv-python>=4.8.0",
         "numpy>=1.24.0",
         "Pillow>=10.0.0",
+        "PyQt5>=5.15.0",
+        "PyQt-Fluent-Widgets>=1.5.0",
     ],
     entry_points={
         "console_scripts": [
