@@ -20,7 +20,12 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QDialog, QInputDialog, QMessageBox, QSystemTrayIcon, QMenu, QListWidget, QListWidgetItem)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QPoint, QPropertyAnimation, QEasingCurve, QRect
 from PyQt5.QtGui import QImage, QPixmap, QFont, QIcon, QColor
-from PyQt5.QtWinExtras import QtWin
+# Windows-specific import
+try:
+    from PyQt5.QtWinExtras import QtWin
+except ImportError:
+    # QtWin is only available on Windows
+    QtWin = None
 
 from qfluentwidgets import (
     FluentIcon, PushButton, PrimaryPushButton, InfoBar, InfoBarPosition, 
@@ -38,10 +43,16 @@ BACKUP_DIR = ".recordings_backup"
 PASSWORD_HASH = "1440717954315df5abbb85dce6f0f82e4c7d9f9990f53cdb4caf523e1001a730"  # SHA256 of "naxidatianxiadiyikeai1027"
 RETENTION_DAYS = 7
 
-# Initialize TTS engine
-tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 150)
-tts_engine.setProperty('volume', 1.0)
+# Initialize TTS engine (with error handling)
+try:
+    tts_engine = pyttsx3.init()
+    tts_engine.setProperty('rate', 150)
+    tts_engine.setProperty('volume', 1.0)
+    TTS_AVAILABLE = True
+except (RuntimeError, ImportError):
+    # TTS not available (e.g., eSpeak not installed on Linux)
+    tts_engine = None
+    TTS_AVAILABLE = False
 
 
 class EncryptionManager:
@@ -643,8 +654,9 @@ class MonitoringApp(QMainWindow):
         text = latest['text']
         
         try:
-            tts_engine.say(text)
-            tts_engine.runAndWait()
+            if TTS_AVAILABLE and tts_engine:
+                tts_engine.say(text)
+                tts_engine.runAndWait()
         except Exception as e:
             print(f"TTS error: {e}")
     
@@ -1166,22 +1178,34 @@ class MonitoringApp(QMainWindow):
 
 def main():
     """Main entry point"""
-    app = QApplication.instance() or QApplication(sys.argv)
-    
-    app.setApplicationName("智能监控系统")
-    app.setOrganizationName("ClassMonitor")
-    
-    setTheme(Theme.LIGHT)
-    
-    window = MonitoringApp()
-    
-    # Create floating recorder widget
-    floating_recorder = FloatingRecorderWidget(window)
-    floating_recorder.show()
-    
-    window.show()
-    
-    sys.exit(app.exec_())
+    try:
+        app = QApplication.instance() or QApplication(sys.argv)
+        
+        app.setApplicationName("智能监控系统")
+        app.setOrganizationName("ClassMonitor")
+        
+        setTheme(Theme.LIGHT)
+        
+        window = MonitoringApp()
+        
+        # Create floating recorder widget
+        floating_recorder = FloatingRecorderWidget(window)
+        floating_recorder.show()
+        
+        window.show()
+        
+        sys.exit(app.exec_())
+    except Exception as e:
+        if "platform plugin" in str(e) or "Could not load the Qt platform plugin" in str(e):
+            print("图形界面初始化失败。这可能是因为：")
+            print("1. 在无图形界面的环境中运行")
+            print("2. 缺少必要的图形库")
+            print("请在支持图形界面的环境中运行此程序。")
+            print("\n如果您在 Windows 或 macOS 上运行，请直接双击运行。")
+            print("如果您在 Linux 上运行，请确保已安装 X11 或 Wayland。")
+        else:
+            print(f"程序启动失败: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
