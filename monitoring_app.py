@@ -208,27 +208,27 @@ class FloatingRecorderWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         
         # Title label
-        self.title_label = QLabel("⚡")
+        self.title_label = QLabel()
+        self.title_label.setPixmap(FluentIcon.HOME.pixmap(QSize(32, 32)))
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-size: 20px; color: white;")
         layout.addWidget(self.title_label)
         
         # Open button
-        self.open_btn = PushButton("📺")
+        self.open_btn = PushButton(FluentIcon.APPLICATION)
         self.open_btn.setFixedSize(60, 50)
         self.open_btn.setToolTip("打开主窗口")
         self.open_btn.clicked.connect(self.open_main_window)
         layout.addWidget(self.open_btn)
         
         # Record button
-        self.record_btn = PushButton("⏺")
+        self.record_btn = PushButton(FluentIcon.PLAY_SOLID)
         self.record_btn.setFixedSize(60, 50)
         self.record_btn.setToolTip("开始/停止录制")
         self.record_btn.clicked.connect(self.toggle_recording)
         layout.addWidget(self.record_btn)
         
         # Pen button
-        self.pen_btn = PushButton("✏")
+        self.pen_btn = PushButton(FluentIcon.EDIT)
         self.pen_btn.setFixedSize(60, 50)
         self.pen_btn.setToolTip("画笔工具")
         self.pen_btn.clicked.connect(self.launch_pen_tool)
@@ -293,8 +293,17 @@ class FloatingRecorderWidget(QWidget):
             }}
         """)
         
-        self.title_label.setText("REC" if self.is_recording else "待命")
-        self.record_btn.setText("⏹" if self.is_recording else "⏺")
+        # Update title icon
+        if self.is_recording:
+            self.title_label.setPixmap(FluentIcon.TRANSPARENT.pixmap(QSize(32, 32)))
+        else:
+            self.title_label.setPixmap(FluentIcon.HOME.pixmap(QSize(32, 32)))
+        
+        # Update record button icon
+        if self.is_recording:
+            self.record_btn.setIcon(FluentIcon.PAUSE.icon())
+        else:
+            self.record_btn.setIcon(FluentIcon.PLAY_SOLID.icon())
         self.record_btn.setToolTip("停止录制" if self.is_recording else "开始录制")
     
     def check_edge_proximity(self):
@@ -612,19 +621,19 @@ class MonitoringApp(QMainWindow):
         ann_header.addWidget(announcement_title)
         ann_header.addStretch()
         
-        add_ann_btn = PushButton("➕")
+        add_ann_btn = PushButton(FluentIcon.ADD)
         add_ann_btn.setFixedSize(32, 32)
         add_ann_btn.setToolTip("添加公告")
         add_ann_btn.clicked.connect(self.add_announcement)
         ann_header.addWidget(add_ann_btn)
         
-        tts_ann_btn = PushButton("🔊")
+        tts_ann_btn = PushButton(FluentIcon.MICROPHONE)
         tts_ann_btn.setFixedSize(32, 32)
         tts_ann_btn.setToolTip("朗读公告")
         tts_ann_btn.clicked.connect(self.tts_read_announcement)
         ann_header.addWidget(tts_ann_btn)
         
-        clear_ann_btn = PushButton("🗑")
+        clear_ann_btn = PushButton(FluentIcon.DELETE)
         clear_ann_btn.setFixedSize(32, 32)
         clear_ann_btn.setToolTip("清空所有公告")
         clear_ann_btn.clicked.connect(self.clear_announcements)
@@ -724,8 +733,9 @@ class MonitoringApp(QMainWindow):
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self.on_tray_activated)
         
-        # Set tray icon
-        self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
+        # Set tray icon - use FluentIcon
+        tray_icon_pixmap = FluentIcon.VIDEO.pixmap(QSize(32, 32))
+        self.tray_icon.setIcon(QIcon(tray_icon_pixmap))
         self.tray_icon.show()
     
     def on_tray_activated(self, reason):
