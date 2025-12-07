@@ -10,11 +10,16 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Try to protect the process on Windows
+# If user denies UAC, continue anyway
 try:
     from windows_admin import is_admin, request_admin
     if sys.platform == 'win32':
         if not is_admin():
-            request_admin()
+            try:
+                request_admin()
+            except:
+                # User denied UAC, continue without admin privileges
+                pass
 except ImportError:
     pass
 
@@ -22,4 +27,4 @@ except ImportError:
 from monitoring_app import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

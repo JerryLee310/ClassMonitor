@@ -44,8 +44,15 @@ def request_admin():
     
     try:
         # Re-run the script with admin privileges
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-        sys.exit()
+        script_path = os.path.abspath(sys.argv[0])
+        params = subprocess.list2cmdline([script_path] + sys.argv[1:])
+        ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+        if ret > 32:  # Success
+            sys.exit()
+        else:
+            # User denied or error occurred
+            print(f"UAC request denied or failed (code: {ret})")
+            return False
     except Exception as e:
         print(f"Failed to request admin: {e}")
         return False
