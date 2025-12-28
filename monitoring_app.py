@@ -460,21 +460,21 @@ class FloatingRecorderWidget(QWidget):
         layout.addWidget(self.title_label)
         
         # Open button
-        self.open_btn = PushButton(FluentIcon.APPLICATION)
+        self.open_btn = PushButton(FluentIcon.APPLICATION, "")
         self.open_btn.setFixedSize(60, 50)
         self.open_btn.setToolTip("打开主窗口")
         self.open_btn.clicked.connect(self.open_main_window)
         layout.addWidget(self.open_btn)
         
         # Record button
-        self.record_btn = PushButton(FluentIcon.PLAY_SOLID)
+        self.record_btn = PushButton(FluentIcon.PLAY_SOLID, "")
         self.record_btn.setFixedSize(60, 50)
         self.record_btn.setToolTip("开始/停止录制")
         self.record_btn.clicked.connect(self.toggle_recording)
         layout.addWidget(self.record_btn)
         
         # Pen button
-        self.pen_btn = PushButton(FluentIcon.EDIT)
+        self.pen_btn = PushButton(FluentIcon.EDIT, "")
         self.pen_btn.setFixedSize(60, 50)
         self.pen_btn.setToolTip("画笔工具")
         self.pen_btn.clicked.connect(self.launch_pen_tool)
@@ -868,19 +868,19 @@ class MonitoringApp(QMainWindow):
         ann_header.addWidget(announcement_title)
         ann_header.addStretch()
         
-        add_ann_btn = PushButton(FluentIcon.ADD)
+        add_ann_btn = PushButton(FluentIcon.ADD, "")
         add_ann_btn.setFixedSize(32, 32)
         add_ann_btn.setToolTip("添加公告")
         add_ann_btn.clicked.connect(self.add_announcement)
         ann_header.addWidget(add_ann_btn)
         
-        tts_ann_btn = PushButton(FluentIcon.MICROPHONE)
+        tts_ann_btn = PushButton(FluentIcon.MICROPHONE, "")
         tts_ann_btn.setFixedSize(32, 32)
         tts_ann_btn.setToolTip("朗读公告")
         tts_ann_btn.clicked.connect(self.tts_read_announcement)
         ann_header.addWidget(tts_ann_btn)
         
-        clear_ann_btn = PushButton(FluentIcon.DELETE)
+        clear_ann_btn = PushButton(FluentIcon.DELETE, "")
         clear_ann_btn.setFixedSize(32, 32)
         clear_ann_btn.setToolTip("清空所有公告")
         clear_ann_btn.clicked.connect(self.clear_announcements)
