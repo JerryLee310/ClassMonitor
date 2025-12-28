@@ -455,7 +455,7 @@ class FloatingRecorderWidget(QWidget):
         
         # Title label
         self.title_label = QLabel()
-        self.title_label.setPixmap(FluentIcon.HOME.pixmap(QSize(32, 32)))
+        self.title_label.setPixmap(FluentIcon.HOME.icon().pixmap(QSize(32, 32)))
         self.title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.title_label)
         
@@ -541,9 +541,9 @@ class FloatingRecorderWidget(QWidget):
         
         # Update title icon
         if self.is_recording:
-            self.title_label.setPixmap(FluentIcon.TRANSPARENT.pixmap(QSize(32, 32)))
+            self.title_label.setPixmap(FluentIcon.TRANSPARENT.icon().pixmap(QSize(32, 32)))
         else:
-            self.title_label.setPixmap(FluentIcon.HOME.pixmap(QSize(32, 32)))
+            self.title_label.setPixmap(FluentIcon.HOME.icon().pixmap(QSize(32, 32)))
         
         # Update record button icon
         if self.is_recording:
