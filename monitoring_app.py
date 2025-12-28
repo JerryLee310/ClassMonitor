@@ -18,7 +18,8 @@ import pyttsx3
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QPushButton, QFrame,
                              QDialog, QInputDialog, QMessageBox, QSystemTrayIcon, QMenu, QListWidget, QListWidgetItem,
-                             QMenuBar, QAction, QSizePolicy, QActionGroup, QLineEdit)
+                             QMenuBar, QAction, QSizePolicy, QActionGroup, QLineEdit, QTableWidget, QTableWidgetItem,
+                             QHeaderView, QAbstractItemView)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QPoint, QSize
 from PyQt5.QtGui import QImage, QPixmap, QFont, QIcon, QColor
 try:
@@ -102,6 +103,251 @@ class EncryptionManager:
         except Exception as e:
             print(f"Decryption error: {e}")
             return None
+
+
+class VideoListDialog(QDialog):
+    """Dialog to display and manage video files"""
+    
+    def __init__(self, parent=None, encryption_manager=None):
+        super().__init__(parent)
+        self.encryption_manager = encryption_manager
+        self.parent_app = parent
+        self.setWindowTitle("视频列表")
+        self.setMinimumSize(800, 500)
+        self.setup_ui()
+        self.load_videos()
+    
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Title
+        title = SubtitleLabel("加密视频列表")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4;")
+        layout.addWidget(title)
+        
+        # Video table
+        self.video_table = QTableWidget()
+        self.video_table.setColumnCount(4)
+        self.video_table.setHorizontalHeaderLabels(["文件名", "大小", "修改时间", "操作"])
+        self.video_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.video_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.video_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.video_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.video_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.video_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.video_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #E1DFDD;
+                border-radius: 8px;
+                gridline-color: #E1DFDD;
+            }
+            QTableWidget::item {
+                padding: 8px;
+            }
+            QTableWidget::item:selected {
+                background-color: #E6F4FF;
+                color: #000000;
+            }
+            QHeaderView::section {
+                background-color: #F3F2F1;
+                padding: 8px;
+                border: none;
+                border-bottom: 1px solid #E1DFDD;
+                font-weight: bold;
+                color: #323130;
+            }
+        """)
+        layout.addWidget(self.video_table)
+        
+        # Button row
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        refresh_btn = PushButton(FluentIcon.SYNC, "刷新")
+        refresh_btn.clicked.connect(self.load_videos)
+        button_layout.addWidget(refresh_btn)
+        
+        close_btn = PrimaryPushButton(FluentIcon.CLOSE, "关闭")
+        close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def load_videos(self):
+        """Load video files from recordings directory"""
+        self.video_table.setRowCount(0)
+        
+        if not os.path.exists(RECORDINGS_DIR):
+            return
+        
+        video_files = [f for f in os.listdir(RECORDINGS_DIR) if f.endswith('.encrypted')]
+        video_files.sort(key=lambda x: os.path.getmtime(os.path.join(RECORDINGS_DIR, x)), reverse=True)
+        
+        for filename in video_files:
+            filepath = os.path.join(RECORDINGS_DIR, filename)
+            file_size = os.path.getsize(filepath)
+            file_mtime = datetime.datetime.fromtimestamp(os.path.getmtime(filepath))
+            
+            row = self.video_table.rowCount()
+            self.video_table.insertRow(row)
+            
+            # Filename
+            name_item = QTableWidgetItem(filename)
+            self.video_table.setItem(row, 0, name_item)
+            
+            # Size (convert to MB)
+            size_mb = file_size / (1024 * 1024)
+            size_item = QTableWidgetItem(f"{size_mb:.2f} MB")
+            self.video_table.setItem(row, 1, size_item)
+            
+            # Modified time
+            time_item = QTableWidgetItem(file_mtime.strftime("%Y-%m-%d %H:%M:%S"))
+            self.video_table.setItem(row, 2, time_item)
+            
+            # Action buttons
+            action_widget = QWidget()
+            action_layout = QHBoxLayout(action_widget)
+            action_layout.setContentsMargins(5, 2, 5, 2)
+            action_layout.setSpacing(5)
+            
+            export_btn = PushButton(FluentIcon.DOWNLOAD, "导出")
+            export_btn.setFixedSize(80, 32)
+            export_btn.clicked.connect(lambda checked, f=filename: self.export_video(f))
+            action_layout.addWidget(export_btn)
+            
+            delete_btn = PushButton(FluentIcon.DELETE, "删除")
+            delete_btn.setFixedSize(80, 32)
+            delete_btn.clicked.connect(lambda checked, f=filename: self.delete_video(f))
+            action_layout.addWidget(delete_btn)
+            
+            self.video_table.setCellWidget(row, 3, action_widget)
+        
+        if self.video_table.rowCount() == 0:
+            self.video_table.insertRow(0)
+            no_data_item = QTableWidgetItem("暂无视频文件")
+            no_data_item.setForeground(QColor("#605E5C"))
+            self.video_table.setItem(0, 0, no_data_item)
+            self.video_table.setSpan(0, 0, 1, 4)
+    
+    def export_video(self, filename):
+        """Export a video file"""
+        try:
+            encrypted_path = os.path.join(RECORDINGS_DIR, filename)
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            output_filename = filename.replace('.encrypted', '')
+            output_path = os.path.join(desktop, output_filename)
+            
+            # Decrypt the video
+            decrypted = self.encryption_manager.decrypt_file(encrypted_path, output_path)
+            
+            if decrypted:
+                InfoBar.success(
+                    title="成功",
+                    content=f"视频已导出到桌面: {output_filename}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+            else:
+                InfoBar.error(
+                    title="错误",
+                    content="视频解密失败",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+        except Exception as e:
+            InfoBar.error(
+                title="错误",
+                content=f"导出失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def delete_video(self, filename):
+        """Delete a video file with password protection"""
+        # Verify password
+        password_dialog = QDialog(self)
+        password_dialog.setWindowTitle("密码验证")
+        password_dialog.setFixedSize(350, 150)
+        
+        dialog_layout = QVBoxLayout(password_dialog)
+        dialog_layout.setSpacing(15)
+        dialog_layout.setContentsMargins(20, 20, 20, 20)
+        
+        label = BodyLabel("请输入密码以删除视频:")
+        dialog_layout.addWidget(label)
+        
+        password_input = LineEdit()
+        password_input.setEchoMode(QLineEdit.Password)
+        password_input.setPlaceholderText("输入密码")
+        dialog_layout.addWidget(password_input)
+        
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(password_dialog.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        confirm_btn = PrimaryPushButton("确认")
+        confirm_btn.clicked.connect(password_dialog.accept)
+        button_layout.addWidget(confirm_btn)
+        
+        dialog_layout.addLayout(button_layout)
+        
+        if password_dialog.exec_() != QDialog.Accepted:
+            return
+        
+        password = password_input.text()
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+        if password_hash != PASSWORD_HASH:
+            InfoBar.error(
+                title="错误",
+                content="密码错误",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        # Delete the file
+        try:
+            filepath = os.path.join(RECORDINGS_DIR, filename)
+            os.remove(filepath)
+            InfoBar.success(
+                title="成功",
+                content="视频已删除",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            self.load_videos()
+        except Exception as e:
+            InfoBar.error(
+                title="错误",
+                content=f"删除失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
 
 
 class VideoThread(QThread):
@@ -493,6 +739,7 @@ class MonitoringApp(QMainWindow):
         self.setup_timer()
         self.setup_tray()
         self.cleanup_old_videos()
+        self.protect_directories()
         
         atexit.register(self.on_exit)
     
@@ -575,7 +822,7 @@ class MonitoringApp(QMainWindow):
         
         # Video management menu
         video_menu = menubar.addMenu("视频管理")
-        video_menu.addAction("打开视频文件夹", self.open_videos_folder)
+        video_menu.addAction("视频列表", self.show_video_list)
         video_menu.addAction("导出视频", self.export_video)
         video_menu.addAction("删除视频", self.delete_video)
         
@@ -896,33 +1143,15 @@ class MonitoringApp(QMainWindow):
                     self.announcement_container_layout.count() - 1, ann_card
                 )
     
-    def open_videos_folder(self):
-        """Open videos folder"""
+    def show_video_list(self):
+        """Show video list dialog"""
         try:
-            if not os.path.exists(RECORDINGS_DIR):
-                os.makedirs(RECORDINGS_DIR, exist_ok=True)
-            
-            folder_path = os.path.abspath(RECORDINGS_DIR)
-            if sys.platform == 'win32':
-                os.startfile(folder_path)
-            elif sys.platform == 'darwin':
-                subprocess.Popen(['open', folder_path])
-            else:  # Linux
-                subprocess.Popen(['xdg-open', folder_path])
-                
-            InfoBar.success(
-                title="成功",
-                content="视频文件夹已打开",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
+            dialog = VideoListDialog(self, self.encryption_manager)
+            dialog.exec_()
         except Exception as e:
             InfoBar.error(
                 title="错误",
-                content=f"无法打开文件夹: {str(e)}",
+                content=f"无法打开视频列表: {str(e)}",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -1379,6 +1608,32 @@ class MonitoringApp(QMainWindow):
         """Update video frame"""
         if self.video_widget:
             self.video_widget.set_frame(qt_image)
+    
+    def protect_directories(self):
+        """Protect software and recordings directories from Explorer access"""
+        try:
+            # Import windows_admin module
+            try:
+                import windows_admin
+                if sys.platform == 'win32' and windows_admin.is_admin():
+                    # Get program directory and recordings directory
+                    prog_dir = os.path.dirname(os.path.abspath(__file__))
+                    recordings_dir = os.path.abspath(RECORDINGS_DIR)
+                    
+                    # Protect both directories
+                    directories = [prog_dir, recordings_dir]
+                    result = windows_admin.protect_directories(directories)
+                    
+                    if result:
+                        print("Directories protected successfully")
+                    else:
+                        print("Directory protection partially failed")
+                else:
+                    print("Not running as admin or not on Windows, skipping directory protection")
+            except ImportError:
+                print("windows_admin module not available, skipping directory protection")
+        except Exception as e:
+            print(f"Failed to protect directories: {e}")
     
     def on_exit(self):
         """Handle program exit"""
