@@ -981,8 +981,8 @@ class MonitoringApp(QMainWindow):
         self.tray_icon.activated.connect(self.on_tray_activated)
         
         # Set tray icon - use FluentIcon
-        tray_icon_pixmap = FluentIcon.VIDEO.pixmap(QSize(32, 32))
-        self.tray_icon.setIcon(QIcon(tray_icon_pixmap))
+        tray_qicon = FluentIcon.VIDEO.icon()
+        self.tray_icon.setIcon(tray_qicon)
         self.tray_icon.show()
     
     def on_tray_activated(self, reason):
