@@ -36,10 +36,11 @@ env/
 
 # Application specific
 config.json
-recordings/
+.recordings/
+.recordings_backup/
+.key
 *.avi
-*.mp4
-*.mov
+*.encrypted
 
 # Logs
 *.log

@@ -1046,8 +1046,59 @@ class MonitoringApp(QMainWindow):
                 parent=self
             )
     
+    def verify_password_with_dialog(self, parent=None):
+        """Verify password via dialog for protected operations"""
+        dialog = QDialog(parent if parent else self)
+        dialog.setWindowTitle("密码验证")
+        dialog.setFixedSize(350, 150)
+        
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.setSpacing(15)
+        dialog_layout.setContentsMargins(20, 20, 20, 20)
+        
+        label = BodyLabel("请输入密码:")
+        dialog_layout.addWidget(label)
+        
+        password_input = LineEdit()
+        password_input.setEchoMode(QLineEdit.Password)
+        password_input.setPlaceholderText("输入密码")
+        dialog_layout.addWidget(password_input)
+        
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        confirm_btn = PrimaryPushButton("确认")
+        confirm_btn.clicked.connect(dialog.accept)
+        button_layout.addWidget(confirm_btn)
+        
+        dialog_layout.addLayout(button_layout)
+        
+        if dialog.exec_() != QDialog.Accepted:
+            return False
+        
+        password = password_input.text()
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+        if password_hash != PASSWORD_HASH:
+            InfoBar.error(
+                title="错误",
+                content="密码错误",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=dialog
+            )
+            return False
+        
+        return True
+    
     def tts_read_announcement(self):
-        """Read announcement using TTS"""
+        """Read announcement using TTS (password protected)"""
         if not self.announcements:
             InfoBar.warning(
                 title="提示",
@@ -1070,6 +1121,10 @@ class MonitoringApp(QMainWindow):
                 duration=3000,
                 parent=self
             )
+            return
+        
+        # Verify password before TTS
+        if not self.verify_password_with_dialog():
             return
         
         # Get latest announcement
