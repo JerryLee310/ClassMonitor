@@ -851,6 +851,18 @@ class MonitoringApp(QMainWindow):
                 background-color: {self.colors['hover']};
             }}
         """)
+
+        # Minimize button (top-right)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(0)
+        self.minimize_btn = PushButton(FluentIcon.MINIMIZE, "")
+        self._setup_icon_only_button(self.minimize_btn, size=32, icon_size=QSize(14, 14))
+        self.minimize_btn.setToolTip("最小化")
+        self.minimize_btn.clicked.connect(self.minimize_window)
+        corner_layout.addWidget(self.minimize_btn)
+        menubar.setCornerWidget(corner, Qt.TopRightCorner)
         
         # Camera menu
         camera_menu = menubar.addMenu("摄像头")
@@ -1334,6 +1346,29 @@ class MonitoringApp(QMainWindow):
                 QSystemTrayIcon.Information,
                 3000
             )
+
+    def minimize_window(self):
+        """Minimize the main window; notify on Windows if recording is active."""
+        self.showMinimized()
+
+        if self.recording and sys.platform == 'win32':
+            if self.tray_icon:
+                self.tray_icon.showMessage(
+                    "智能监控系统",
+                    "正在录制中，程序已最小化，录像仍在进行。",
+                    QSystemTrayIcon.Information,
+                    3000
+                )
+            else:
+                InfoBar.info(
+                    title="提示",
+                    content="正在录制中，程序已最小化，录像仍在进行。",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
     
     def update_datetime(self):
         """Update datetime label"""
