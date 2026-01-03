@@ -799,6 +799,8 @@ class MonitoringApp(QMainWindow):
         self.record_indicator_scale = 1.0
         self.camera_index = 0
         self.default_announcement_color = self.colors['text_primary']
+        self.shortcuts_initialized = False
+        self.shortcut_check_timer = None
         self.announcements = []
         self.config_file = CONFIG_FILE
         self.video_thread = None
@@ -818,6 +820,7 @@ class MonitoringApp(QMainWindow):
         self.setup_tray()
         self.cleanup_old_videos()
         self.protect_directories()
+        self.setup_shortcut_monitor()
         
         atexit.register(self.on_exit)
     
@@ -1369,6 +1372,89 @@ class MonitoringApp(QMainWindow):
                     duration=3000,
                     parent=self
                 )
+
+    def setup_shortcut_monitor(self):
+        """Create launch shortcuts in all drive roots (Windows) and re-create if deleted."""
+        if sys.platform != 'win32':
+            return
+
+        try:
+            # Run once on startup
+            self.ensure_launch_shortcuts()
+
+            if not self.shortcuts_initialized:
+                self.shortcuts_initialized = True
+                self.save_config()
+
+            # Then re-check every 10 minutes
+            self.shortcut_check_timer = QTimer(self)
+            self.shortcut_check_timer.timeout.connect(self.ensure_launch_shortcuts)
+            self.shortcut_check_timer.start(10 * 60 * 1000)
+        except Exception as e:
+            print(f"Shortcut monitor init failed: {e}")
+
+    def ensure_launch_shortcuts(self):
+        if sys.platform != 'win32':
+            return
+
+        try:
+            base_dir = Path(__file__).resolve().parent
+            run_py = base_dir / 'run.py'
+            if not run_py.exists():
+                run_py = base_dir / 'monitoring_app.py'
+
+            python_exe = Path(sys.executable)
+            pythonw = python_exe.with_name('pythonw.exe')
+            target = str(pythonw if pythonw.exists() else python_exe)
+
+            args = f'"{str(run_py)}"'
+            workdir = str(base_dir)
+            shortcut_name = '智能监控系统启动.lnk'
+
+            for drive in self._get_windows_logical_drives():
+                shortcut_path = os.path.join(drive, shortcut_name)
+                if os.path.exists(shortcut_path):
+                    continue
+                try:
+                    self._create_windows_shortcut(shortcut_path, target, args, workdir)
+                except Exception as e:
+                    # Most common reason: permission denied writing to drive root
+                    print(f"Create shortcut failed at {shortcut_path}: {e}")
+        except Exception as e:
+            print(f"Ensure shortcuts failed: {e}")
+
+    def _get_windows_logical_drives(self):
+        try:
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        except Exception:
+            return []
+
+        drives = []
+        for i in range(26):
+            if bitmask & (1 << i):
+                drives.append(f"{chr(65 + i)}:\\")
+        return drives
+
+    def _ps_quote(self, s: str) -> str:
+        return s.replace("'", "''")
+
+    def _create_windows_shortcut(self, shortcut_path: str, target_path: str, arguments: str, working_directory: str):
+        ps = (
+            "$WshShell = New-Object -ComObject WScript.Shell; "
+            f"$Shortcut = $WshShell.CreateShortcut('{self._ps_quote(shortcut_path)}'); "
+            f"$Shortcut.TargetPath = '{self._ps_quote(target_path)}'; "
+            f"$Shortcut.Arguments = '{self._ps_quote(arguments)}'; "
+            f"$Shortcut.WorkingDirectory = '{self._ps_quote(working_directory)}'; "
+            "$Shortcut.Save();"
+        )
+
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "创建快捷方式失败").strip())
     
     def update_datetime(self):
         """Update datetime label"""
@@ -1965,6 +2051,7 @@ class MonitoringApp(QMainWindow):
                 self.record_indicator_scale = float(config.get('record_indicator_scale', 1.0))
                 self.camera_index = int(config.get('camera_index', 0))
                 self.default_announcement_color = config.get('default_announcement_color', self.colors['text_primary'])
+                self.shortcuts_initialized = bool(config.get('shortcuts_initialized', False))
 
                 raw_anns = config.get('announcements', [])
                 self.announcements = []
@@ -1988,6 +2075,7 @@ class MonitoringApp(QMainWindow):
             'record_indicator_scale': self.record_indicator_scale,
             'camera_index': self.camera_index,
             'default_announcement_color': self.default_announcement_color,
+            'shortcuts_initialized': self.shortcuts_initialized,
             'announcements': self.announcements
         }
         try:
