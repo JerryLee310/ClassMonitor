@@ -137,40 +137,40 @@ def lock_priority():
 
 def deny_explorer_access(directory_path):
     """
-    Set directory permissions to deny access from Windows Explorer
-    while allowing access from this application.
+    Set directory permissions to allow access only for current user and SYSTEM.
+    Note: DENY ACEs take precedence over ALLOW ACEs, so we only use ALLOW ACEs.
     Requires administrator privileges.
     """
     if sys.platform != 'win32':
         return False
-    
+
     if not WINDOWS_MODULES_AVAILABLE:
         return False
-    
+
     try:
         import win32security
         import ntsecuritycon as con
-        
+
         # Get the current process SID
         token = win32security.OpenProcessToken(
             win32api.GetCurrentProcess(),
             win32security.TOKEN_QUERY
         )
         user_sid = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
-        
+
         # Create a security descriptor
         sd = win32security.SECURITY_DESCRIPTOR()
-        
+
         # Create a DACL (Discretionary Access Control List)
         dacl = win32security.ACL()
-        
+
         # Allow full control for current user/process
         dacl.AddAccessAllowedAce(
             win32security.ACL_REVISION,
             con.FILE_ALL_ACCESS,
             user_sid
         )
-        
+
         # Allow full control for SYSTEM
         system_sid = win32security.ConvertStringSidToSid('S-1-5-18')
         dacl.AddAccessAllowedAce(
@@ -178,43 +178,49 @@ def deny_explorer_access(directory_path):
             con.FILE_ALL_ACCESS,
             system_sid
         )
-        
-        # Deny access to Explorer.exe (deny Everyone read/list)
-        # We use deny for the "Users" group to prevent Explorer access
-        everyone_sid = win32security.ConvertStringSidToSid('S-1-1-0')  # Everyone
-        dacl.AddAccessDeniedAce(
+
+        # Allow full control for Administrators group
+        admin_sid = win32security.ConvertStringSidToSid('S-1-5-32-544')
+        dacl.AddAccessAllowedAce(
             win32security.ACL_REVISION,
-            con.FILE_GENERIC_READ | con.FILE_LIST_DIRECTORY,
-            everyone_sid
+            con.FILE_ALL_ACCESS,
+            admin_sid
         )
-        
-        # Set the DACL to the security descriptor
+
+        # Set the DACL to the security descriptor (DACL present, no default DACL)
         sd.SetSecurityDescriptorDacl(1, dacl, 0)
-        
+
         # Apply the security descriptor to the directory
         win32security.SetFileSecurity(
             directory_path,
             win32security.DACL_SECURITY_INFORMATION,
             sd
         )
-        
+
         return True
     except Exception as e:
-        print(f"Failed to deny explorer access: {e}")
+        print(f"Failed to set directory permissions: {e}")
         return False
 
 
 def protect_directories(directories):
     """
-    Protect multiple directories from Explorer access
+    Protect multiple directories from Explorer access.
+    When not running as admin, ensures directories are accessible.
     """
     if sys.platform != 'win32':
         return False
-    
+
     if not is_admin():
-        print("Warning: Not running as administrator, directory protection may fail")
+        print("Not running as administrator, ensuring directory accessibility")
+        # Create directories but don't apply restrictive permissions
+        for directory in directories:
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except Exception as e:
+                print(f"Failed to create directory {directory}: {e}")
         return False
-    
+
     results = []
     for directory in directories:
         # Ensure directory exists
@@ -225,7 +231,7 @@ def protect_directories(directories):
                 print(f"Failed to create directory {directory}: {e}")
                 results.append(False)
                 continue
-        
+
         # Hide the directory
         try:
             import win32api
@@ -233,11 +239,11 @@ def protect_directories(directories):
             win32api.SetFileAttributes(directory, win32con.FILE_ATTRIBUTE_HIDDEN | win32con.FILE_ATTRIBUTE_SYSTEM)
         except Exception as e:
             print(f"Failed to hide directory {directory}: {e}")
-        
-        # Apply access restrictions
+
+        # Apply access restrictions (allow only current user, SYSTEM, Administrators)
         result = deny_explorer_access(directory)
         results.append(result)
-    
+
     return all(results)
 
 

@@ -480,7 +480,7 @@ class FloatingRecorderWidget(QWidget):
         self.title_label.setPixmap(FluentIcon.HOME.icon().pixmap(QSize(32, 32)))
         self.title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.title_label)
-        
+
         # Open button
         self.open_btn = PushButton(FluentIcon.APPLICATION, "")
         self.open_btn.setFixedSize(60, 50)
@@ -488,7 +488,7 @@ class FloatingRecorderWidget(QWidget):
         self.open_btn.setToolTip("打开主窗口")
         self.open_btn.clicked.connect(self.open_main_window)
         layout.addWidget(self.open_btn)
-        
+
         # Record button
         self.record_btn = PushButton(FluentIcon.PLAY_SOLID, "")
         self.record_btn.setFixedSize(60, 50)
@@ -496,7 +496,7 @@ class FloatingRecorderWidget(QWidget):
         self.record_btn.setToolTip("开始/停止录制")
         self.record_btn.clicked.connect(self.toggle_recording)
         layout.addWidget(self.record_btn)
-        
+
         # Pen button
         self.pen_btn = PushButton(FluentIcon.EDIT, "")
         self.pen_btn.setFixedSize(60, 50)
@@ -563,7 +563,14 @@ class FloatingRecorderWidget(QWidget):
             PushButton:pressed {{
                 background-color: rgba(255, 255, 255, 70);
             }}
+            QAbstractButton {{
+                qproperty-iconAlignment: AlignHCenter | AlignVCenter;
+            }}
         """)
+
+        for btn in [self.open_btn, self.record_btn, self.pen_btn]:
+            btn.setIconSize(QSize(26, 26))
+            btn.setText("")
         
         # Update title icon
         if self.is_recording:
