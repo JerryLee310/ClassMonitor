@@ -10,18 +10,21 @@ import hashlib
 import atexit
 import ctypes
 import subprocess
+import shutil
 from pathlib import Path
 from cryptography.fernet import Fernet
 from PIL import Image, ImageQt
 import pyttsx3
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QPushButton, QFrame,
-                             QDialog, QInputDialog, QMessageBox, QSystemTrayIcon, QMenu, QListWidget, QListWidgetItem,
-                             QMenuBar, QAction, QSizePolicy, QActionGroup, QLineEdit, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QAbstractItemView)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QPoint, QSize
-from PyQt5.QtGui import QImage, QPixmap, QFont, QIcon, QColor
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QFrame,
+    QDialog, QInputDialog, QMessageBox, QSystemTrayIcon, QMenu, QListWidget, QListWidgetItem,
+    QMenuBar, QAction, QSizePolicy, QActionGroup, QLineEdit, QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView, QDateTimeEdit, QColorDialog
+)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QPoint, QSize, QRect, QDateTime
+from PyQt5.QtGui import QImage, QPixmap, QFont, QIcon, QColor, QCursor
 try:
     from PyQt5.QtWinExtras import QtWin
 except ImportError:
@@ -363,6 +366,8 @@ class VideoThread(QThread):
         self.video_writer = None
         self.exposure = 0
         self.time_position = "top-right"
+        self.timestamp_scale = 1.0
+        self.record_indicator_scale = 1.0
         
     def run(self):
         self.running = True
@@ -373,15 +378,15 @@ class VideoThread(QThread):
                 if self.recording and self.show_timestamp:
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 0.7
-                    font_thickness = 2
+                    font_scale = 0.7 * float(self.timestamp_scale)
+                    font_thickness = max(1, int(round(2 * float(self.timestamp_scale))))
                     text_color = (255, 255, 255)
                     bg_color = (0, 0, 0)
-                    
+
                     text_size = cv2.getTextSize(current_time, font, font_scale, font_thickness)[0]
                     text_width, text_height = text_size
-                    padding = 10
-                    
+                    padding = max(6, int(round(10 * float(self.timestamp_scale))))
+
                     if self.time_position == "top-left":
                         x, y = padding, text_height + padding
                     elif self.time_position == "top-right":
@@ -392,19 +397,32 @@ class VideoThread(QThread):
                         x, y = frame.shape[1] - text_width - padding, frame.shape[0] - padding
                     else:
                         x, y = frame.shape[1] - text_width - padding, text_height + padding
-                    
-                    cv2.rectangle(frame, 
-                                (x - 5, y - text_height - 5), 
-                                (x + text_width + 5, y + 5), 
-                                bg_color, -1)
+
+                    box_padding = max(4, int(round(5 * float(self.timestamp_scale))))
+                    cv2.rectangle(
+                        frame,
+                        (x - box_padding, y - text_height - box_padding),
+                        (x + text_width + box_padding, y + box_padding),
+                        bg_color,
+                        -1
+                    )
                     cv2.putText(frame, current_time, (x, y), font, font_scale, text_color, font_thickness)
-                
+
                 if self.recording and self.video_writer is not None:
                     self.video_writer.write(frame)
-                    
+
+                    scale = float(self.record_indicator_scale)
+                    radius = max(6, int(round(10 * scale)))
+                    circle_x = max(radius + 2, int(round(20 * scale)))
+                    circle_y = max(radius + 2, int(round(20 * scale)))
+                    text_x = circle_x + radius + max(6, int(round(10 * scale)))
+                    text_y = circle_y + max(6, int(round(6 * scale)))
+                    rec_font_scale = 0.7 * scale
+                    rec_thickness = max(1, int(round(2 * scale)))
+
                     # Use ASCII indicator to avoid garbled characters
-                    cv2.circle(frame, (20, 20), 10, (0, 0, 255), -1)
-                    cv2.putText(frame, "REC", (40, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.circle(frame, (circle_x, circle_y), radius, (0, 0, 255), -1)
+                    cv2.putText(frame, "REC", (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, rec_font_scale, (0, 0, 255), rec_thickness)
                 
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = frame_rgb.shape
@@ -430,8 +448,12 @@ class FloatingRecorderWidget(QWidget):
         self.is_dragging = False
         self.drag_pos = None
         self.is_hidden_at_edge = False
-        self.edge_threshold = 10  # Pixels from edge to trigger hiding
-        self.hidden_size = 3  # Width/height when hidden
+        self.is_hovering = False
+        self.hidden_edge = None
+        self.edge_threshold = 12  # Pixels from edge to trigger hiding
+        self.hidden_size = 16  # Width/height when hidden
+        self.edge_hot_zone = 2  # Pixels from screen edge to trigger wake
+        self.last_wake_time = 0.0
         self._force_close = False
         
         self.setup_ui()
@@ -462,6 +484,7 @@ class FloatingRecorderWidget(QWidget):
         # Open button
         self.open_btn = PushButton(FluentIcon.APPLICATION, "")
         self.open_btn.setFixedSize(60, 50)
+        self.open_btn.setIconSize(QSize(26, 26))
         self.open_btn.setToolTip("打开主窗口")
         self.open_btn.clicked.connect(self.open_main_window)
         layout.addWidget(self.open_btn)
@@ -469,6 +492,7 @@ class FloatingRecorderWidget(QWidget):
         # Record button
         self.record_btn = PushButton(FluentIcon.PLAY_SOLID, "")
         self.record_btn.setFixedSize(60, 50)
+        self.record_btn.setIconSize(QSize(26, 26))
         self.record_btn.setToolTip("开始/停止录制")
         self.record_btn.clicked.connect(self.toggle_recording)
         layout.addWidget(self.record_btn)
@@ -476,6 +500,7 @@ class FloatingRecorderWidget(QWidget):
         # Pen button
         self.pen_btn = PushButton(FluentIcon.EDIT, "")
         self.pen_btn.setFixedSize(60, 50)
+        self.pen_btn.setIconSize(QSize(26, 26))
         self.pen_btn.setToolTip("画笔工具")
         self.pen_btn.clicked.connect(self.launch_pen_tool)
         layout.addWidget(self.pen_btn)
@@ -530,6 +555,7 @@ class FloatingRecorderWidget(QWidget):
                 border-radius: 8px;
                 color: white;
                 font-size: 18px;
+                padding: 0px;
             }}
             PushButton:hover {{
                 background-color: rgba(255, 255, 255, 50);
@@ -556,62 +582,110 @@ class FloatingRecorderWidget(QWidget):
         """Check if widget is near screen edge and hide/show accordingly"""
         if self.is_dragging:
             return
-        
+
         screen = QApplication.desktop().screenGeometry()
         pos = self.pos()
-        
-        # Check if near left or right edge
-        near_left = pos.x() < self.edge_threshold
-        near_right = pos.x() + self.width() > screen.width() - self.edge_threshold
-        near_top = pos.y() < self.edge_threshold
-        near_bottom = pos.y() + self.height() > screen.height() - self.edge_threshold
-        
+
+        if self.is_hidden_at_edge:
+            if self.is_hovering:
+                return
+
+            cursor = QCursor.pos()
+            if self._is_cursor_in_wake_zone(cursor, screen):
+                self.unhide_from_edge()
+            return
+
+        # Avoid immediately hiding again right after waking up
+        if time.time() - self.last_wake_time < 0.8:
+            return
+
+        if self.is_hovering:
+            return
+
+        # Check if near screen edge
+        near_left = pos.x() <= self.edge_threshold
+        near_right = pos.x() + self.width() >= screen.width() - self.edge_threshold
+        near_top = pos.y() <= self.edge_threshold
+        near_bottom = pos.y() + self.height() >= screen.height() - self.edge_threshold
+
         if near_left or near_right or near_top or near_bottom:
-            if not self.is_hidden_at_edge:
-                self.hide_at_edge(near_left, near_right, near_top, near_bottom)
-        else:
-            if self.is_hidden_at_edge:
-                self.show_from_edge()
-    
-    def hide_at_edge(self, left, right, top, bottom):
-        """Hide widget at screen edge"""
+            self.hide_at_edge(near_left, near_right, near_top, near_bottom)
+
+    def _is_cursor_in_wake_zone(self, cursor_pos: QPoint, screen: QRect) -> bool:
+        if not self.hidden_edge:
+            return False
+
+        x = cursor_pos.x()
+        y = cursor_pos.y()
+        left = screen.left()
+        right = screen.right()
+        top = screen.top()
+        bottom = screen.bottom()
+
+        if self.hidden_edge == "left":
+            return x <= left + self.edge_hot_zone and self.y() <= y <= self.y() + self.height()
+        if self.hidden_edge == "right":
+            return x >= right - self.edge_hot_zone and self.y() <= y <= self.y() + self.height()
+        if self.hidden_edge == "top":
+            return y <= top + self.edge_hot_zone and self.x() <= x <= self.x() + self.width()
+        if self.hidden_edge == "bottom":
+            return y >= bottom - self.edge_hot_zone and self.x() <= x <= self.x() + self.width()
+
+        return False
+
+    def hide_at_edge(self, left: bool, right: bool, top: bool, bottom: bool):
+        """Hide widget at screen edge, leaving a small handle visible"""
+        if self.is_hidden_at_edge:
+            return
+
         self.is_hidden_at_edge = True
         pos = self.pos()
-        
+
         if left:
+            self.hidden_edge = "left"
             self.setGeometry(-self.width() + self.hidden_size, pos.y(), self.width(), self.height())
         elif right:
+            self.hidden_edge = "right"
             screen_width = QApplication.desktop().screenGeometry().width()
             self.setGeometry(screen_width - self.hidden_size, pos.y(), self.width(), self.height())
         elif top:
+            self.hidden_edge = "top"
             self.setGeometry(pos.x(), -self.height() + self.hidden_size, self.width(), self.height())
         elif bottom:
+            self.hidden_edge = "bottom"
             screen_height = QApplication.desktop().screenGeometry().height()
             self.setGeometry(pos.x(), screen_height - self.hidden_size, self.width(), self.height())
-    
-    def show_from_edge(self):
-        """Show widget from edge"""
+
+    def unhide_from_edge(self):
+        """Show widget fully when hidden at screen edge"""
+        if not self.is_hidden_at_edge:
+            return
+
+        screen = QApplication.desktop().screenGeometry()
+        pos = self.pos()
+
+        if self.hidden_edge == "left":
+            self.move(0, pos.y())
+        elif self.hidden_edge == "right":
+            self.move(screen.width() - self.width(), pos.y())
+        elif self.hidden_edge == "top":
+            self.move(pos.x(), 0)
+        elif self.hidden_edge == "bottom":
+            self.move(pos.x(), screen.height() - self.height())
+
         self.is_hidden_at_edge = False
-        # Widget will naturally move away from edge as user drags it
-    
+        self.last_wake_time = time.time()
+
     def enterEvent(self, event):
-        """Show full widget when mouse enters"""
+        self.is_hovering = True
         if self.is_hidden_at_edge:
-            screen = QApplication.desktop().screenGeometry()
-            pos = self.pos()
-            
-            # Determine which edge we're hidden at and show fully
-            if pos.x() < 0:
-                self.move(0, pos.y())
-            elif pos.x() > screen.width() - self.width():
-                self.move(screen.width() - self.width(), pos.y())
-            elif pos.y() < 0:
-                self.move(pos.x(), 0)
-            elif pos.y() > screen.height() - self.height():
-                self.move(pos.x(), screen.height() - self.height())
-            
-            self.is_hidden_at_edge = False
-    
+            self.unhide_from_edge()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.is_hovering = False
+        super().leaveEvent(event)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.is_dragging = True
@@ -721,6 +795,12 @@ class MonitoringApp(QMainWindow):
         self.running = False
         self.exposure = 0
         self.time_position = "top-right"
+        self.timestamp_scale = 1.0
+        self.record_indicator_scale = 1.0
+        self.camera_index = 0
+        self.default_announcement_color = self.colors['text_primary']
+        self.shortcuts_initialized = False
+        self.shortcut_check_timer = None
         self.announcements = []
         self.config_file = CONFIG_FILE
         self.video_thread = None
@@ -740,6 +820,7 @@ class MonitoringApp(QMainWindow):
         self.setup_tray()
         self.cleanup_old_videos()
         self.protect_directories()
+        self.setup_shortcut_monitor()
         
         atexit.register(self.on_exit)
     
@@ -773,6 +854,18 @@ class MonitoringApp(QMainWindow):
                 background-color: {self.colors['hover']};
             }}
         """)
+
+        # Minimize button (top-right)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(0)
+        self.minimize_btn = PushButton(FluentIcon.MINIMIZE, "")
+        self._setup_icon_only_button(self.minimize_btn, size=32, icon_size=QSize(14, 14))
+        self.minimize_btn.setToolTip("最小化")
+        self.minimize_btn.clicked.connect(self.minimize_window)
+        corner_layout.addWidget(self.minimize_btn)
+        menubar.setCornerWidget(corner, Qt.TopRightCorner)
         
         # Camera menu
         camera_menu = menubar.addMenu("摄像头")
@@ -784,7 +877,11 @@ class MonitoringApp(QMainWindow):
         self.stop_camera_action.triggered.connect(self.stop_camera)
         self.stop_camera_action.setEnabled(False)
         camera_menu.addAction(self.stop_camera_action)
-        
+
+        camera_menu.addSeparator()
+        self.camera_select_menu = camera_menu.addMenu("选择录制摄像头")
+        self.camera_select_menu.aboutToShow.connect(self.populate_camera_select_menu)
+
         # Recording menu
         recording_menu = menubar.addMenu("录制")
         self.start_recording_action = QAction("开始录制", self)
@@ -819,6 +916,11 @@ class MonitoringApp(QMainWindow):
             action.triggered.connect(lambda checked, v=value: self.set_time_position(v))
             position_group.addAction(action)
             time_position_menu.addAction(action)
+
+        settings_menu.addSeparator()
+        overlay_menu = settings_menu.addMenu("叠加显示")
+        overlay_menu.addAction("时间大小", self.change_timestamp_scale)
+        overlay_menu.addAction("录制标识大小", self.change_record_indicator_scale)
         
         # Video management menu
         video_menu = menubar.addMenu("视频管理")
@@ -828,6 +930,7 @@ class MonitoringApp(QMainWindow):
         
         # System menu
         system_menu = menubar.addMenu("系统")
+        system_menu.addAction("设置系统时间", self.show_set_system_time_dialog)
         system_menu.addAction("退出程序", self.exit_program)
         
         # Central widget
@@ -869,19 +972,25 @@ class MonitoringApp(QMainWindow):
         ann_header.addStretch()
         
         add_ann_btn = PushButton(FluentIcon.ADD, "")
-        add_ann_btn.setFixedSize(32, 32)
+        self._setup_icon_only_button(add_ann_btn)
         add_ann_btn.setToolTip("添加公告")
         add_ann_btn.clicked.connect(self.add_announcement)
         ann_header.addWidget(add_ann_btn)
+
+        color_ann_btn = PushButton(FluentIcon.PALETTE, "")
+        self._setup_icon_only_button(color_ann_btn)
+        color_ann_btn.setToolTip("公告默认颜色")
+        color_ann_btn.clicked.connect(self.change_default_announcement_color)
+        ann_header.addWidget(color_ann_btn)
         
         tts_ann_btn = PushButton(FluentIcon.MICROPHONE, "")
-        tts_ann_btn.setFixedSize(32, 32)
+        self._setup_icon_only_button(tts_ann_btn)
         tts_ann_btn.setToolTip("朗读公告")
         tts_ann_btn.clicked.connect(self.tts_read_announcement)
         ann_header.addWidget(tts_ann_btn)
         
         clear_ann_btn = PushButton(FluentIcon.DELETE, "")
-        clear_ann_btn.setFixedSize(32, 32)
+        self._setup_icon_only_button(clear_ann_btn)
         clear_ann_btn.setToolTip("清空所有公告")
         clear_ann_btn.clicked.connect(self.clear_announcements)
         ann_header.addWidget(clear_ann_btn)
@@ -916,7 +1025,236 @@ class MonitoringApp(QMainWindow):
         main_layout.addLayout(video_container, 2)
         
         self.update_announcement_display()
-    
+
+    def _setup_icon_only_button(self, btn: PushButton, size: int = 32, icon_size=None):
+        btn.setFixedSize(size, size)
+        btn.setIconSize(icon_size if icon_size else QSize(16, 16))
+        btn.setStyleSheet("PushButton { padding: 0px; }")
+
+    def detect_available_cameras(self, max_index: int = 6):
+        """Detect available camera indices."""
+        available = []
+        for idx in range(max_index):
+            cap = None
+            try:
+                cap = cv2.VideoCapture(idx)
+                if cap is not None and cap.isOpened():
+                    available.append(idx)
+            except Exception:
+                pass
+            finally:
+                try:
+                    if cap is not None:
+                        cap.release()
+                except Exception:
+                    pass
+        return available
+
+    def populate_camera_select_menu(self):
+        if not self.camera_select_menu:
+            return
+
+        self.camera_select_menu.clear()
+
+        available = self.detect_available_cameras()
+        if not available:
+            available = [0]
+
+        group = QActionGroup(self)
+        group.setExclusive(True)
+
+        for idx in available:
+            action = QAction(f"摄像头 {idx}", self, checkable=True)
+            action.setChecked(idx == self.camera_index)
+            action.triggered.connect(lambda checked, i=idx: self.set_camera_index(i))
+            group.addAction(action)
+            self.camera_select_menu.addAction(action)
+
+        self.camera_select_menu.addSeparator()
+        manual_action = QAction("手动输入...", self)
+        manual_action.triggered.connect(self.set_camera_index_manual)
+        self.camera_select_menu.addAction(manual_action)
+
+    def set_camera_index_manual(self):
+        value, ok = QInputDialog.getInt(self, "选择摄像头", "请输入摄像头编号:", int(self.camera_index), 0, 20, 1)
+        if ok:
+            self.set_camera_index(value)
+
+    def set_camera_index(self, idx: int):
+        idx = int(idx)
+        if idx == self.camera_index:
+            return
+
+        self.camera_index = idx
+        self.save_config()
+
+        if self.cap is not None:
+            self.stop_camera()
+            self.start_camera()
+
+        InfoBar.success(
+            title="成功",
+            content=f"已选择摄像头: {idx}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+    def change_timestamp_scale(self):
+        percent, ok = QInputDialog.getInt(
+            self,
+            "时间大小",
+            "请输入时间大小百分比 (50 - 200):",
+            int(round(self.timestamp_scale * 100)),
+            50,
+            200,
+            5
+        )
+        if not ok:
+            return
+
+        self.timestamp_scale = percent / 100.0
+        if self.video_thread:
+            self.video_thread.timestamp_scale = self.timestamp_scale
+        self.save_config()
+
+    def change_record_indicator_scale(self):
+        percent, ok = QInputDialog.getInt(
+            self,
+            "录制标识大小",
+            "请输入录制标识大小百分比 (50 - 200):",
+            int(round(self.record_indicator_scale * 100)),
+            50,
+            200,
+            5
+        )
+        if not ok:
+            return
+
+        self.record_indicator_scale = percent / 100.0
+        if self.video_thread:
+            self.video_thread.record_indicator_scale = self.record_indicator_scale
+        self.save_config()
+
+    def change_default_announcement_color(self):
+        color = QColorDialog.getColor(QColor(self.default_announcement_color), self, "选择公告默认颜色")
+        if not color.isValid():
+            return
+
+        self.default_announcement_color = color.name()
+        self.save_config()
+        self.update_announcement_display()
+
+    def show_set_system_time_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("设置系统时间")
+        dialog.setFixedSize(420, 200)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        tip = BodyLabel("需要管理员权限。修改后会立即生效，精确到秒。")
+        tip.setWordWrap(True)
+        layout.addWidget(tip)
+
+        dt_edit = QDateTimeEdit(QDateTime.currentDateTime(), dialog)
+        dt_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        dt_edit.setCalendarPopup(True)
+        layout.addWidget(dt_edit)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        ok_btn = PrimaryPushButton("应用")
+
+        def apply_time():
+            dt = dt_edit.dateTime().toPyDateTime()
+            if self.set_system_time(dt):
+                dialog.accept()
+
+        ok_btn.clicked.connect(apply_time)
+        btn_layout.addWidget(ok_btn)
+
+        layout.addLayout(btn_layout)
+        dialog.exec_()
+
+    def set_system_time(self, dt: datetime.datetime) -> bool:
+        """Set system time. Returns True on success."""
+        dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        try:
+            if sys.platform == 'win32':
+                try:
+                    is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+                except Exception:
+                    is_admin = False
+
+                if not is_admin:
+                    InfoBar.error(
+                        title="错误",
+                        content="需要管理员权限才能修改系统时间",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+                    return False
+
+                result = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", f'Set-Date -Date "{dt_str}"'],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    raise RuntimeError((result.stderr or result.stdout or "未知错误").strip())
+            else:
+                # Try timedatectl first (systemd), fallback to date
+                if shutil.which('timedatectl'):
+                    result = subprocess.run(
+                        ["timedatectl", "set-time", dt_str],
+                        capture_output=True,
+                        text=True
+                    )
+                else:
+                    result = subprocess.run(
+                        ["date", "-s", dt_str],
+                        capture_output=True,
+                        text=True
+                    )
+
+                if result.returncode != 0:
+                    raise RuntimeError((result.stderr or result.stdout or "权限不足或命令失败").strip())
+
+            InfoBar.success(
+                title="成功",
+                content=f"系统时间已设置为: {dt_str}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            self.update_datetime()
+            return True
+        except Exception as e:
+            InfoBar.error(
+                title="错误",
+                content=f"设置系统时间失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+            return False
+
     def show_exposure_dialog(self):
         """Show exposure adjustment dialog"""
         value, ok = QInputDialog.getInt(
@@ -964,6 +1302,10 @@ class MonitoringApp(QMainWindow):
     
     def setup_tray(self):
         """Setup system tray icon"""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray_icon = None
+            return
+
         self.tray_icon = QSystemTrayIcon(self)
         
         # Create tray menu
@@ -1007,6 +1349,112 @@ class MonitoringApp(QMainWindow):
                 QSystemTrayIcon.Information,
                 3000
             )
+
+    def minimize_window(self):
+        """Minimize the main window; notify on Windows if recording is active."""
+        self.showMinimized()
+
+        if self.recording and sys.platform == 'win32':
+            if self.tray_icon:
+                self.tray_icon.showMessage(
+                    "智能监控系统",
+                    "正在录制中，程序已最小化，录像仍在进行。",
+                    QSystemTrayIcon.Information,
+                    3000
+                )
+            else:
+                InfoBar.info(
+                    title="提示",
+                    content="正在录制中，程序已最小化，录像仍在进行。",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+
+    def setup_shortcut_monitor(self):
+        """Create launch shortcuts in all drive roots (Windows) and re-create if deleted."""
+        if sys.platform != 'win32':
+            return
+
+        try:
+            # Run once on startup
+            self.ensure_launch_shortcuts()
+
+            if not self.shortcuts_initialized:
+                self.shortcuts_initialized = True
+                self.save_config()
+
+            # Then re-check every 10 minutes
+            self.shortcut_check_timer = QTimer(self)
+            self.shortcut_check_timer.timeout.connect(self.ensure_launch_shortcuts)
+            self.shortcut_check_timer.start(10 * 60 * 1000)
+        except Exception as e:
+            print(f"Shortcut monitor init failed: {e}")
+
+    def ensure_launch_shortcuts(self):
+        if sys.platform != 'win32':
+            return
+
+        try:
+            base_dir = Path(__file__).resolve().parent
+            run_py = base_dir / 'run.py'
+            if not run_py.exists():
+                run_py = base_dir / 'monitoring_app.py'
+
+            python_exe = Path(sys.executable)
+            pythonw = python_exe.with_name('pythonw.exe')
+            target = str(pythonw if pythonw.exists() else python_exe)
+
+            args = f'"{str(run_py)}"'
+            workdir = str(base_dir)
+            shortcut_name = '智能监控系统启动.lnk'
+
+            for drive in self._get_windows_logical_drives():
+                shortcut_path = os.path.join(drive, shortcut_name)
+                if os.path.exists(shortcut_path):
+                    continue
+                try:
+                    self._create_windows_shortcut(shortcut_path, target, args, workdir)
+                except Exception as e:
+                    # Most common reason: permission denied writing to drive root
+                    print(f"Create shortcut failed at {shortcut_path}: {e}")
+        except Exception as e:
+            print(f"Ensure shortcuts failed: {e}")
+
+    def _get_windows_logical_drives(self):
+        try:
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        except Exception:
+            return []
+
+        drives = []
+        for i in range(26):
+            if bitmask & (1 << i):
+                drives.append(f"{chr(65 + i)}:\\")
+        return drives
+
+    def _ps_quote(self, s: str) -> str:
+        return s.replace("'", "''")
+
+    def _create_windows_shortcut(self, shortcut_path: str, target_path: str, arguments: str, working_directory: str):
+        ps = (
+            "$WshShell = New-Object -ComObject WScript.Shell; "
+            f"$Shortcut = $WshShell.CreateShortcut('{self._ps_quote(shortcut_path)}'); "
+            f"$Shortcut.TargetPath = '{self._ps_quote(target_path)}'; "
+            f"$Shortcut.Arguments = '{self._ps_quote(arguments)}'; "
+            f"$Shortcut.WorkingDirectory = '{self._ps_quote(working_directory)}'; "
+            "$Shortcut.Save();"
+        )
+
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "创建快捷方式失败").strip())
     
     def update_datetime(self):
         """Update datetime label"""
@@ -1014,26 +1462,99 @@ class MonitoringApp(QMainWindow):
         self.datetime_label.setText(now)
     
     def add_announcement(self):
-        """Add new announcement with error handling"""
-        try:
-            text, ok = QInputDialog.getText(self, "添加公告", "请输入公告内容:")
-            if ok and text.strip():
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.announcements.append({
-                    'text': text.strip(),
-                    'timestamp': timestamp
-                })
-                self.update_announcement_display()
-                self.save_config()
-                InfoBar.success(
-                    title="成功",
-                    content="公告添加成功",
+        """Add new announcement"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加公告")
+        dialog.setMinimumSize(420, 260)
+
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        label = BodyLabel("请输入公告内容:")
+        layout.addWidget(label)
+
+        text_edit = TextEdit()
+        text_edit.setPlaceholderText("请输入公告内容...")
+        layout.addWidget(text_edit)
+
+        color_row = QHBoxLayout()
+        color_row.setSpacing(10)
+        color_row.addWidget(BodyLabel("文字颜色:"))
+
+        selected = {'color': QColor(self.default_announcement_color)}
+        color_preview = QFrame()
+        color_preview.setFixedSize(22, 22)
+        color_preview.setStyleSheet(
+            f"background-color: {selected['color'].name()}; border: 1px solid {self.colors['border']}; border-radius: 4px;"
+        )
+        color_row.addWidget(color_preview)
+
+        pick_btn = PushButton(FluentIcon.PALETTE, "选择")
+
+        def pick_color():
+            c = QColorDialog.getColor(selected['color'], dialog, "选择公告文字颜色")
+            if c.isValid():
+                selected['color'] = c
+                color_preview.setStyleSheet(
+                    f"background-color: {c.name()}; border: 1px solid {self.colors['border']}; border-radius: 4px;"
+                )
+
+        pick_btn.clicked.connect(pick_color)
+        color_row.addWidget(pick_btn)
+        color_row.addStretch()
+        layout.addLayout(color_row)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        ok_btn = PrimaryPushButton("添加")
+
+        def do_add():
+            text = text_edit.toPlainText().strip()
+            if not text:
+                InfoBar.warning(
+                    title="提示",
+                    content="公告内容不能为空",
                     orient=Qt.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
+                    duration=2000,
+                    parent=dialog
                 )
+                return
+            dialog.accept()
+
+        ok_btn.clicked.connect(do_add)
+        btn_layout.addWidget(ok_btn)
+        layout.addLayout(btn_layout)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        try:
+            text = text_edit.toPlainText().strip()
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.announcements.append({
+                'text': text,
+                'timestamp': timestamp,
+                'color': selected['color'].name()
+            })
+            self.update_announcement_display()
+            self.save_config()
+            InfoBar.success(
+                title="成功",
+                content="公告添加成功",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
         except Exception as e:
             print(f"Error adding announcement: {e}")
             InfoBar.error(
@@ -1171,7 +1692,7 @@ class MonitoringApp(QMainWindow):
             no_ann_label.setStyleSheet(f"color: {self.colors['text_secondary']}; padding: 20px;")
             self.announcement_container_layout.insertWidget(0, no_ann_label)
         else:
-            for ann in self.announcements:
+            for idx, ann in enumerate(self.announcements):
                 ann_card = CardWidget()
                 ann_card.setStyleSheet(f"""
                     CardWidget {{
@@ -1183,21 +1704,74 @@ class MonitoringApp(QMainWindow):
                 """)
                 ann_layout = QVBoxLayout(ann_card)
                 ann_layout.setContentsMargins(12, 12, 12, 12)
-                ann_layout.setSpacing(5)
-                
-                time_label = CaptionLabel(ann['timestamp'])
+                ann_layout.setSpacing(6)
+
+                header = QHBoxLayout()
+                header.setContentsMargins(0, 0, 0, 0)
+                header.setSpacing(6)
+
+                time_label = CaptionLabel(ann.get('timestamp', ''))
                 time_label.setStyleSheet(f"color: {self.colors['text_secondary']}; font-size: 10px;")
-                ann_layout.addWidget(time_label)
-                
-                text_label = BodyLabel(ann['text'])
+                header.addWidget(time_label)
+                header.addStretch()
+
+                color_btn = PushButton(FluentIcon.PALETTE, "")
+                self._setup_icon_only_button(color_btn, size=28, icon_size=QSize(14, 14))
+                color_btn.setToolTip("修改颜色")
+                color_btn.clicked.connect(lambda checked, i=idx: self.change_announcement_color(i))
+                header.addWidget(color_btn)
+
+                delete_btn = PushButton(FluentIcon.DELETE, "")
+                self._setup_icon_only_button(delete_btn, size=28, icon_size=QSize(14, 14))
+                delete_btn.setToolTip("删除")
+                delete_btn.clicked.connect(lambda checked, i=idx: self.delete_announcement(i))
+                header.addWidget(delete_btn)
+
+                ann_layout.addLayout(header)
+
+                color = ann.get('color', self.default_announcement_color)
+                text_label = BodyLabel(ann.get('text', ''))
                 text_label.setWordWrap(True)
-                text_label.setStyleSheet(f"color: {self.colors['text_primary']}; font-size: 12px;")
+                text_label.setStyleSheet(f"color: {color}; font-size: 12px;")
                 ann_layout.addWidget(text_label)
-                
+
                 self.announcement_container_layout.insertWidget(
                     self.announcement_container_layout.count() - 1, ann_card
                 )
-    
+
+    def change_announcement_color(self, index: int):
+        if index < 0 or index >= len(self.announcements):
+            return
+
+        current = QColor(self.announcements[index].get('color', self.default_announcement_color))
+        color = QColorDialog.getColor(current, self, "选择公告颜色")
+        if not color.isValid():
+            return
+
+        self.announcements[index]['color'] = color.name()
+        self.save_config()
+        self.update_announcement_display()
+
+    def delete_announcement(self, index: int):
+        if index < 0 or index >= len(self.announcements):
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "确认",
+            "确定要删除该条公告吗？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            self.announcements.pop(index)
+            self.update_announcement_display()
+            self.save_config()
+        except Exception:
+            pass
+
     def show_video_list(self):
         """Show video list dialog"""
         try:
@@ -1468,23 +2042,44 @@ class MonitoringApp(QMainWindow):
         """Load configuration from file"""
         if os.path.exists(self.config_file):
             try:
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    self.exposure = config.get('exposure', 0)
-                    self.time_position = config.get('time_position', 'top-right')
-                    self.announcements = config.get('announcements', [])
+
+                self.exposure = config.get('exposure', 0)
+                self.time_position = config.get('time_position', 'top-right')
+                self.timestamp_scale = float(config.get('timestamp_scale', 1.0))
+                self.record_indicator_scale = float(config.get('record_indicator_scale', 1.0))
+                self.camera_index = int(config.get('camera_index', 0))
+                self.default_announcement_color = config.get('default_announcement_color', self.colors['text_primary'])
+                self.shortcuts_initialized = bool(config.get('shortcuts_initialized', False))
+
+                raw_anns = config.get('announcements', [])
+                self.announcements = []
+                for ann in raw_anns if isinstance(raw_anns, list) else []:
+                    if not isinstance(ann, dict):
+                        continue
+                    self.announcements.append({
+                        'text': str(ann.get('text', '')).strip(),
+                        'timestamp': str(ann.get('timestamp', '')).strip(),
+                        'color': ann.get('color', self.default_announcement_color)
+                    })
             except Exception as e:
                 print(f"Error loading config: {e}")
-    
+
     def save_config(self):
         """Save configuration to file"""
         config = {
             'exposure': self.exposure,
             'time_position': self.time_position,
+            'timestamp_scale': self.timestamp_scale,
+            'record_indicator_scale': self.record_indicator_scale,
+            'camera_index': self.camera_index,
+            'default_announcement_color': self.default_announcement_color,
+            'shortcuts_initialized': self.shortcuts_initialized,
             'announcements': self.announcements
         }
         try:
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Error saving config: {e}")
@@ -1515,7 +2110,7 @@ class MonitoringApp(QMainWindow):
     def start_camera(self):
         """Start camera"""
         if self.cap is None:
-            self.cap = cv2.VideoCapture(0)
+            self.cap = cv2.VideoCapture(self.camera_index)
             
             if not self.cap.isOpened():
                 InfoBar.error(
@@ -1552,6 +2147,8 @@ class MonitoringApp(QMainWindow):
             self.video_thread.cap = self.cap
             self.video_thread.exposure = self.exposure
             self.video_thread.time_position = self.time_position
+            self.video_thread.timestamp_scale = self.timestamp_scale
+            self.video_thread.record_indicator_scale = self.record_indicator_scale
             self.video_thread.frame_ready.connect(self.update_video_frame)
             self.video_thread.start()
     
